@@ -160,7 +160,7 @@ jobs:
           echo "✅ Bark推送请求已发送"
 
 
-# Bark推送wx（完全修复YAML语法，单行命令）
+# sever酱推送wx（完全修复YAML语法，单行命令）
           - name: Send Log to WeChat via ServerChan
   env:
     SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
