@@ -158,3 +158,13 @@ jobs:
           ENCODED_CONTENT=$(urlencode "$LOG_CONTENT")
           curl -s "https://api.day.app/${BARK_KEY}/B站签到日志?body=${ENCODED_CONTENT}"
           echo "✅ Bark推送请求已发送"
+
+
+# Bark推送wx（完全修复YAML语法，单行命令）
+          - name: Send Log to WeChat via ServerChan
+  env:
+    SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+    LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
+  run: |
+    curl -s -X POST "https://sctapi.ftqq.com/${SENDKEY}.send" -d "title=B站签到日志" -d "desp=${LOG_CONTENT}"
+    echo "✅ Server酱推送请求已发送"
