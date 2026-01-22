@@ -2,7 +2,7 @@ name: Bilibili Daily Auto Sign
 
 on:
   schedule:
-    - cron: '0 16 * * *'  # UTC16点=北京时间0点
+    - cron: '0 16 * * *'  # UTC16点=北京时间0点，可自行修改
   workflow_dispatch:
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - name: Set Timezone to Beijing
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
-          echo "✅ 时区已设置为北京时间，当前时间：$(date)"  # 强制输出
+          echo "✅ 时区已设置为北京时间，当前时间：$(date)"
 
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -24,17 +24,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          echo "🔧 开始安装依赖..."
           python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
           pip install requests pytz -i https://pypi.tuna.tsinghua.edu.cn/simple
-          echo "✅ 依赖安装完成"
 
       - name: Run Bilibili Sign Script
+        id: sign_step  # 给步骤加ID，用于后续读取日志
         env:
           BILIBILI_COOKIE: ${{ secrets.BILIBILI_COOKIE }}
         run: |
-          echo "🔧 开始创建签到脚本..."
-          # 创建带强制调试输出的脚本
+          # 创建签到脚本（同之前版本，已包含日志输出）
           cat > bilibili_sign.py << 'EOF'
           import requests
           import os
@@ -42,90 +40,100 @@ jobs:
           from datetime import datetime
           import pytz
 
-          # 强制输出日志到控制台（确保能看到）
           logging.basicConfig(
               level=logging.INFO,
               format='%(asctime)s - %(levelname)s - %(message)s',
               datefmt='%Y-%m-%d %H:%M:%S',
-              handlers=[logging.StreamHandler()]  # 强制输出到控制台
+              handlers=[logging.StreamHandler()]
           )
 
-          # 第一步：打印调试信息，确认环境变量
-          print("\n===== 调试信息 =====")
-          cookie = os.getenv('BILIBILI_COOKIE')
-          print(f"Cookie是否读取到：{'是' if cookie else '否'}")
-          print(f"Cookie长度：{len(cookie) if cookie else 0}")
-          print("====================\n")
+          # 获取北京时间
+          beijing_tz = pytz.timezone('Asia/Shanghai')
+          beijing_time = datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S')
 
+          # 读取Cookie
+          cookie = os.getenv('BILIBILI_COOKIE')
           if not cookie:
               logging.error("❌ 未获取到B站Cookie！请检查GitHub Secrets配置")
               exit(1)
 
-          # 配置请求头
           headers = {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Cookie': cookie,
               'Referer': 'https://www.bilibili.com/',
-              'Origin': 'https://www.bilibili.com/',
-              'Accept-Language': 'zh-CN,zh;q=0.9'
+              'Origin': 'https://www.bilibili.com/'
           }
 
-          # 主站签到（带详细调试）
+          # 主站签到
           def main_sign():
               logging.info("🔍 开始执行主站签到...")
               url = "https://api.bilibili.com/x/member/web/exp/reward"
               try:
                   resp = requests.get(url, headers=headers, timeout=10)
-                  print(f"📌 主站API响应状态码：{resp.status_code}")
-                  print(f"📌 主站API响应内容：{resp.text}")
-                  resp.raise_for_status()
                   result = resp.json()
                   if result.get("code") == 0:
-                      logging.info("✅ 主站签到成功！" + result.get("message", ""))
+                      return f"✅ 主站签到成功！{result.get('message','')}"
                   elif result.get("code") == 200013:
-                      logging.info("ℹ️ 今日已签到，无需重复操作")
+                      return "ℹ️ 主站今日已签到，无需重复操作"
                   else:
-                      logging.warning("⚠️ 主站签到异常：" + result.get("message", "未知错误"))
-              except requests.exceptions.Timeout:
-                  logging.error("❌ 主站签到超时（网络问题）")
-              except requests.exceptions.ConnectionError:
-                  logging.error("❌ 主站签到连接失败（B站API不可达）")
+                      return f"⚠️ 主站签到异常：{result.get('message','未知错误')}"
               except Exception as e:
-                  logging.error(f"❌ 主站签到失败：{str(e)}")
+                  return f"❌ 主站签到失败：{str(e)}"
 
-          # 直播签到（带详细调试）
+          # 直播签到
           def live_sign():
               logging.info("🔍 开始执行直播签到...")
               url = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
               try:
                   resp = requests.get(url, headers=headers, timeout=10)
-                  print(f"📌 直播API响应状态码：{resp.status_code}")
-                  print(f"📌 直播API响应内容：{resp.text}")
-                  resp.raise_for_status()
                   result = resp.json()
                   if result.get("code") == 0:
-                      logging.info("✅ 直播签到成功！" + result.get("msg", ""))
+                      return f"✅ 直播签到成功！{result.get('msg','')}"
                   elif result.get("code") == 10003:
-                      logging.info("ℹ️ 直播今日已签到")
+                      return "ℹ️ 直播今日已签到，无需重复操作"
                   else:
-                      logging.warning("⚠️ 直播签到异常：" + result.get("msg", "未知错误"))
-              except requests.exceptions.Timeout:
-                  logging.error("❌ 直播签到超时（网络问题）")
-              except requests.exceptions.ConnectionError:
-                  logging.error("❌ 直播签到连接失败（B站API不可达）")
+                      return f"⚠️ 直播签到异常：{result.get('msg','未知错误')}"
               except Exception as e:
-                  logging.error(f"❌ 直播签到失败：{str(e)}")
+                  return f"❌ 直播签到失败：{str(e)}"
 
-          # 执行主逻辑
+          # 执行签到并汇总结果
           if __name__ == "__main__":
-              beijing_tz = pytz.timezone('Asia/Shanghai')
-              beijing_time = datetime.now(beijing_tz)
-              logging.info(f"===== 开始B站自动签到（北京时间：{beijing_time.strftime('%Y-%m-%d %H:%M:%S')}）=====")
-              main_sign()
-              live_sign()
-              logging.info("===== 签到流程执行完毕 =====")
+              main_result = main_sign()
+              live_result = live_sign()
+              # 汇总日志内容（用于推送）
+              log_content = f"""
+【B站自动签到日志】
+⏰ 执行时间：{beijing_time}
+{main_result}
+{live_result}
+"""
+              # 打印日志到控制台
+              print(log_content)
+              # 将日志输出为Action变量
+              print(f"::set-output name=log_content::{log_content}")
           EOF
           
-          echo "🔧 开始运行签到脚本..."
+          # 运行签到脚本
           python bilibili_sign.py
-          echo "🔧 脚本运行结束"
+
+      # 👇 Bark推送iPhone（替换这里为Server酱代码即可切换方案）
+      - name: Send Log to iPhone via Bark
+        env:
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+          LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
+        run: |
+          ENCODED_CONTENT=$(echo "$LOG_CONTENT" | jq -sRr @uri)
+          curl -X GET "https://api.day.app/$BARK_KEY/B站签到日志?body=$ENCODED_CONTENT"
+          echo "✅ Bark推送请求已发送"
+
+          # 新增步骤：将日志推送到微信 via Server酱
+- name: Send Log to WeChat via ServerChan
+  env:
+    SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+    LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
+  run: |
+    # 调用Server酱API推送
+    curl -X POST "https://sctapi.ftqq.com/$SENDKEY.send" \
+    -d "title=B站签到日志" \
+    -d "desp=$LOG_CONTENT"
+    echo "✅ Server酱推送请求已发送"
