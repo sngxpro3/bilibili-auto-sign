@@ -141,3 +141,13 @@ jobs:
           # 发送Bark推送（单行命令，避免YAML换行错误）
           curl -s -X GET "https://api.day.app/${BARK_KEY}/B站签到日志?body=${ENCODED_CONTENT}"
           echo "✅ Bark推送请求已发送"
+
+          # 👇 Server酱推微信（修复语法错误版）
+- name: Send Log to WeChat via ServerChan
+  env:
+    SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+    LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
+  run: |
+    # 单行curl命令，避免YAML语法错误
+    curl -s -X POST "https://sctapi.ftqq.com/${SENDKEY}.send" -d "title=B站签到日志" -d "desp=${LOG_CONTENT}"
+    echo "✅ Server酱推送请求已发送"
