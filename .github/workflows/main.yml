@@ -32,7 +32,7 @@ jobs:
         env:
           BILIBILI_COOKIE: ${{ secrets.BILIBILI_COOKIE }}
         run: |
-          # 创建签到脚本（同之前版本，已包含日志输出）
+          # 创建签到脚本
           cat > bilibili_sign.py << 'EOF'
           import requests
           import os
@@ -100,40 +100,44 @@ jobs:
           if __name__ == "__main__":
               main_result = main_sign()
               live_result = live_sign()
-              # 汇总日志内容（用于推送）
-              log_content = f"""
-【B站自动签到日志】
+              # 汇总日志内容（用于推送，替换换行符避免YAML错误）
+              log_content = f"""【B站自动签到日志】
 ⏰ 执行时间：{beijing_time}
 {main_result}
-{live_result}
-"""
+{live_result}"""
+              # 替换换行符为空格（避免推送时格式错误）
+              log_content = log_content.replace('\n', ' ')
               # 打印日志到控制台
               print(log_content)
-              # 将日志输出为Action变量
-              print(f"::set-output name=log_content::{log_content}")
+              # 将日志输出为Action变量（转义特殊字符）
+              echo "::set-output name=log_content::${log_content//'%'/'%25'}"
           EOF
           
           # 运行签到脚本
           python bilibili_sign.py
 
-      # 👇 Bark推送iPhone（替换这里为Server酱代码即可切换方案）
+      # 👇 Bark推送iPhone（修复YAML语法+移除jq依赖）
       - name: Send Log to iPhone via Bark
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
           LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
         run: |
-          ENCODED_CONTENT=$(echo "$LOG_CONTENT" | jq -sRr @uri)
-          curl -X GET "https://api.day.app/$BARK_KEY/B站签到日志?body=$ENCODED_CONTENT"
+          # 手动URL编码（无需jq，纯bash实现）
+          urlencode() {
+              local string="${1}"
+              local strlen=${#string}
+              local encoded=""
+              for (( pos=0 ; pos<strlen ; pos++ )); do
+                  c=${string:$pos:1}
+                  case "$c" in
+                      [-_.~a-zA-Z0-9] ) encoded="$encoded$c" ;;
+                      * ) printf -v encoded "$encoded%%%02X" "'$c" ;;
+                  esac
+              done
+              echo "$encoded"
+          }
+          # 编码日志内容
+          ENCODED_CONTENT=$(urlencode "$LOG_CONTENT")
+          # 发送Bark推送（单行命令，避免YAML换行错误）
+          curl -s -X GET "https://api.day.app/${BARK_KEY}/B站签到日志?body=${ENCODED_CONTENT}"
           echo "✅ Bark推送请求已发送"
-
-          # 新增步骤：将日志推送到微信 via Server酱
-- name: Send Log to WeChat via ServerChan
-  env:
-    SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
-    LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
-  run: |
-    # 调用Server酱API推送
-    curl -X POST "https://sctapi.ftqq.com/$SENDKEY.send" \
-    -d "title=B站签到日志" \
-    -d "desp=$LOG_CONTENT"
-    echo "✅ Server酱推送请求已发送"
