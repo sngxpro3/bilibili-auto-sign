@@ -1,0 +1,160 @@
+name: Bilibili Daily Auto Sign2
+
+on:
+  schedule:
+    - cron: '0 16 * * *'  # UTC16点=北京时间0点
+  workflow_dispatch:
+
+jobs:
+  bilibili-sign-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set Timezone to Beijing
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+          echo "✅ 时区已设置为北京时间，当前时间：$(date)"
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+          pip install requests pytz -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+      - name: Run Bilibili Sign Script
+        id: sign_step
+        env:
+          BILIBILI_COOKIE: ${{ secrets.BILIBILI_COOKIE }}
+        run: |
+          cat > bilibili_sign.py << 'EOF'
+          import requests
+          import os
+          import logging
+          from datetime import datetime
+          import pytz
+
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s - %(levelname)s - %(message)s',
+              datefmt='%Y-%m-%d %H:%M:%S',
+              handlers=[logging.StreamHandler()]
+          )
+
+          # 获取北京时间
+          beijing_tz = pytz.timezone('Asia/Shanghai')
+          beijing_time = datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S')
+
+          # 读取Cookie
+          cookie = os.getenv('BILIBILI_COOKIE')
+          if not cookie:
+              logging.error("❌ 未获取到B站Cookie！请检查GitHub Secrets配置")
+              exit(1)
+
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Cookie': cookie,
+              'Referer': 'https://www.bilibili.com/',
+              'Origin': 'https://www.bilibili.com/'
+          }
+
+          # 主站签到
+          def main_sign():
+              logging.info("🔍 开始执行主站签到...")
+              url = "https://api.bilibili.com/x/member/web/exp/reward"
+              try:
+                  resp = requests.get(url, headers=headers, timeout=10)
+                  result = resp.json()
+                  if result.get("code") == 0:
+                      return f"✅ 主站签到成功！{result.get('message','')}"
+                  elif result.get("code") == 200013:
+                      return "ℹ️ 主站今日已签到，无需重复操作"
+                  else:
+                      return f"⚠️ 主站签到异常：{result.get('message','未知错误')}"
+              except Exception as e:
+                  return f"❌ 主站签到失败：{str(e)}"
+
+          # 直播签到
+          def live_sign():
+              logging.info("🔍 开始执行直播签到...")
+              url = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
+              try:
+                  resp = requests.get(url, headers=headers, timeout=10)
+                  result = resp.json()
+                  if result.get("code") == 0:
+                      return f"✅ 直播签到成功！{result.get('msg','')}"
+                  elif result.get("code") == 10003:
+                      return "ℹ️ 直播今日已签到，无需重复操作"
+                  else:
+                      return f"⚠️ 直播签到异常：{result.get('msg','未知错误')}"
+              except Exception as e:
+                  return f"❌ 直播签到失败：{str(e)}"
+
+          # 执行签到并汇总结果
+          if __name__ == "__main__":
+              main_result = main_sign()
+              live_result = live_sign()
+              # 汇总日志内容
+              log_content = f"""【B站自动签到日志】 ⏰ 执行时间：{beijing_time} {main_result} {live_result}"""
+              # 打印日志
+              print(log_content)
+              # 输出为Action变量（Python正确写法，修复echo误写）
+              print(f"::set-output name=log_content::{log_content}")
+          EOF
+          
+          # 运行签到脚本
+          python bilibili_sign.py
+
+      # Bark推送iPhone（完全修复YAML语法，单行命令）
+      - name: Send Log to iPhone via Bark
+        env:
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+          LOG_CONTENT: ${{ steps.sign_step.outputs.log_content }}
+        run: |
+          # Bash内置URL编码函数
+          urlencode() {
+              local s="${1}"
+              s="${s//'%'/'%25'}"
+              s="${s//' '/'%20'}"
+              s="${s//'!'/'%21'}"
+              s="${s//'"'/'%22'}"
+              s="${s//'#'/'%23'}"
+              s="${s//'$'/'%24'}"
+              s="${s//'&'/'%26'}"
+              s="${s//"'"'/'%27'}"
+              s="${s//'('/'%28'}"
+              s="${s//')'/'%29'}"
+              s="${s//'*'/'%2A'}"
+              s="${s//'+'/'%2B'}"
+              s="${s//','/'%2C'}"
+              s="${s//'-'/'%2D'}"
+              s="${s//'.'/'%2E'}"
+              s="${s//'/'/'%2F'}"
+              s="${s//':'/'%3A'}"
+              s="${s//';'/'%3B'}"
+              s="${s//'<'/'%3C'}"
+              s="${s//'='/'%3D'}"
+              s="${s//'>'/'%3E'}"
+              s="${s//'?'/'%3F'}"
+              s="${s//'@'/'%40'}"
+              s="${s//'['/'%5B'}"
+              s="${s//'\'/'%5C'}"
+              s="${s//']'/'%5D'}"
+              s="${s//'^'/'%5E'}"
+              s="${s//'_'/'%5F'}"
+              s="${s//'`'/'%60'}"
+              s="${s//'{'/'%7B'}"
+              s="${s//'|'/'%7C'}"
+              s="${s//'}'/'%7D'}"
+              s="${s//'~'/'%7E'}"
+              echo "$s"
+          }
+          # 编码并推送
+          ENCODED_CONTENT=$(urlencode "$LOG_CONTENT")
+          curl -s "https://api.day.app/${BARK_KEY}/B站签到日志?body=${ENCODED_CONTENT}"
+          echo "✅ Bark推送请求已发送"
